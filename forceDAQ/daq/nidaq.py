@@ -11,7 +11,7 @@ __author__ = 'Oliver Lindemann'
 
 import ctypes as ct
 import numpy as np
-import PyDAQmx
+import nidaqmx
 
 class DAQConfiguration(object):
     """Settings required for NI-DAQ"""
@@ -27,7 +27,7 @@ class DAQConfiguration(object):
     def physicalChannel(self):
         return "{0}/{1}".format(self.device_name, self.channels)
 
-class DAQReadAnalog(PyDAQmx.Task):
+class DAQReadAnalog(nidaqmx.Task):
 
     NUM_SAMPS_PER_CHAN = ct.c_int32(1)
     TIMEOUT = ct.c_longdouble(1.0) # one second
@@ -38,29 +38,30 @@ class DAQReadAnalog(PyDAQmx.Task):
         read_array_size_in_samples for ReadAnalogF64 call
 
         """
-
-        PyDAQmx.Task.__init__(self)
-
+        print('init')
+        nidaqmx.Task.__init__(self)
         # CreateAIVoltageChan
-        self.CreateAIVoltageChan(configuration.physicalChannel, # physicalChannel
+        self.ai_channels.add_ai_voltage_chan(configuration.physicalChannel, # physicalChannel
                             "",                         # nameToAssignToChannel,
-                            PyDAQmx.DAQmx_Val_Diff,     # terminalConfig
+                            nidaqmx.constants.TerminalConfiguration.DIFFERENTIAL,     # terminalConfig
                             configuration.minVal, configuration.maxVal,  # min max Val
-                            PyDAQmx.DAQmx_Val_Volts,    # units
+                            nidaqmx.constants.VoltageUnits.VOLTS,    # units
                             None                        # customScaleName
                             )
-
+        print('added channels')
         #CfgSampClkTiming
-        self.CfgSampClkTiming("",                 # source
-                            configuration.rate,          # rate
-                            PyDAQmx.DAQmx_Val_Rising,   # activeEdge
-                            PyDAQmx.DAQmx_Val_ContSamps,# sampleMode
+        self.timing.cfg_samp_clk_timing(configuration.rate,          # rate
+                            "",                 # source
+                            nidaqmx.constants.Edge.RISING,   # activeEdge
+                            nidaqmx.constants.AcquisitionType.CONTINUOUS,# sampleMode
                             ct.c_uint64(DAQReadAnalog.NI_DAQ_BUFFER_SIZE) # sampsPerChanToAcquire, i.e. buffer size
                             )
-
+        print('devices')
+        print(nidaqmx.Task.devices)
         self.device_id = configuration.device_id
         self._task_is_started = False
         self.read_array_size_in_samples = ct.c_uint32(read_array_size_in_samples)
+        print(self.read_array_size_in_samples )
 
     @property
     def is_acquiring_data(self):
@@ -73,7 +74,7 @@ class DAQReadAnalog(PyDAQmx.Task):
         """
 
         if not self._task_is_started:
-            self.StartTask()
+            self.start()
             self._task_is_started = True
 
     def stop_data_acquisition(self):
@@ -81,7 +82,7 @@ class DAQReadAnalog(PyDAQmx.Task):
         """
 
         if self._task_is_started:
-            self.StopTask()
+            self.stop()
             self._task_is_started = False
 
     def read_analog(self):
@@ -104,15 +105,7 @@ class DAQReadAnalog(PyDAQmx.Task):
         """
 
         #fill in data
-        read_samples = ct.c_int32()
-        read_buffer = np.zeros((self.read_array_size_in_samples.value,), dtype=np.float64)
-
-        error = self.ReadAnalogF64(DAQReadAnalog.NUM_SAMPS_PER_CHAN,
-                                DAQReadAnalog.TIMEOUT,
-                                PyDAQmx.DAQmx_Val_GroupByScanNumber, # fillMode
-                                read_buffer,
-                                self.read_array_size_in_samples,
-                                ct.byref(read_samples),
-                                None)
-
-        return read_buffer, read_samples.value
+        data = self.read(DAQReadAnalog.NUM_SAMPS_PER_CHAN.value,
+                                DAQReadAnalog.TIMEOUT.value)
+        np_data = np.reshape(np.array(data),(-1,))
+        return np_data, DAQReadAnalog.NUM_SAMPS_PER_CHAN.value
